@@ -2,7 +2,7 @@
 
 A robust, full-stack multi-location retail operations platform designed to track cross-store stock movements, manage role-based access control (RBAC), and visualize real-time net profit analytics.
 
-[![Live Demo](https://img.shields.io/badge/Live-Demo-brightgreen?style=flat&logo=vercel)](https://your-vercel-deployment-url.vercel.app)
+[![Live Demo](https://img.shields.io/badge/Live-Demo-brightgreen?style=flat&logo=vercel)](https://inventory-management-system-eta-tan.vercel.app/)
 ![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat&logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?style=flat&logo=typescript&logoColor=white)
 ![Prisma](https://img.shields.io/badge/Prisma-ORM-282C34?style=flat&logo=prisma&logoColor=white)
@@ -51,8 +51,8 @@ Make sure you have **Node.js** (v18+ recommended) and a **PostgreSQL** database 
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/your-username/your-repo-name.git
-   cd your-repo-name
+   git clone https://github.com/James6952551/inventory-management-system.git
+   cd inventory-management-system
    ```
 
 2. **Install dependencies:**
