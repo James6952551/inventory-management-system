@@ -8,6 +8,16 @@ A robust, full-stack multi-location retail operations platform designed to track
 ![Prisma](https://img.shields.io/badge/Prisma-ORM-282C34?style=flat&logo=prisma&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind-CSS-38BDF8?style=flat&logo=tailwind-css&logoColor=white)
 
+### 🔑 Test Demo Accounts
+
+You can log in to the live demo using the following pre-configured credentials to test role-based access control (RBAC):
+
+| Role | Email | Password |
+|---|---|---|
+| **Admin** | `admin@inventory.demo` | `Password123!` |
+| **Manager** | `manager@inventory.demo` | `Password123!` |
+| **Staff** | `staff@inventory.demo` | `Password123!` |
+
 ---
 
 ## ✨ Core Features
