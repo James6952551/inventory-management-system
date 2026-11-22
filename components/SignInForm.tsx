@@ -6,11 +6,13 @@ import { useRouter } from "next/navigation";
 
 export default function SignInForm() {
     const [isSigningIn, setIsSigningIn] = useState(false)
+    const [errorMessage, setErrorMessage] = useState("")
     const router = useRouter()
 
-    async function handleSubmit(event: React.SubmitEvent<HTMLFormElement>) {
-            event.preventDefault();
-            setIsSigningIn(true);
+    async function handleSubmit(event: React.SyntheticEvent<HTMLFormElement>) { 
+            event.preventDefault()
+            setIsSigningIn(true)
+            setErrorMessage("")
 
             const formData = new FormData(event.currentTarget)
             const email = formData.get('email') as string
@@ -21,13 +23,23 @@ export default function SignInForm() {
                 password,
             },
             {
-                onSuccess: () => {
+                onSuccess: () => { // Redirect user after sign-in 
                     setIsSigningIn(false)
                     router.push('/dashboard')
-                    router.refresh() // Refresh the page to update the auth state
+                    router.refresh()
+                },
+                onError: (ctx) => { // Catch the error using Better-Auth's onError callback
+                    setIsSigningIn(false)
+                    setErrorMessage(ctx.error.message || "Invalid email or password.")
                 }
             })
+
+            // Fallback safety check if error returns outside of callback
+            if (error) {
+                setIsSigningIn(false)
+                setErrorMessage(error.message || "Failed to sign in.")
             }
+    }
 
   return (
       <div className="w-full max-w-md space-y-8 rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
@@ -40,6 +52,13 @@ export default function SignInForm() {
             Enter your credentials to access your account
           </p>
         </div>
+
+        {/* Error Banner UI */}
+        {errorMessage && (
+          <div className="rounded-lg bg-red-50 p-4 border border-red-200 text-sm text-red-700">
+            {errorMessage}
+          </div>
+        )}
 
         {/* Form Layout */}
         <form 
