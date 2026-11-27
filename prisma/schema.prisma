@@ -121,7 +121,6 @@ model StoreStock {
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([storeId, productId]) // Ensures a product only has one stock entry per store
-  @@check([quantity >= 0], name: "quantity_non_negative")
   @@map("store_stock")
 }
 
