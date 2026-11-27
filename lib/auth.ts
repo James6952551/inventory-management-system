@@ -13,13 +13,17 @@ export const auth = betterAuth({
         user: {
           create: {
             after: async (user) => {
-              const totalUsers = await prisma.user.count()
-              const assignedRole = totalUsers === 1 ? 'ADMIN' : 'STAFF'
+              // Check if the registered email matches the designated bootstrap admin
+              const bootstrapEmail = process.env.BOOTSTRAP_ADMIN_EMAIL;
+              const assignedRole = (bootstrapEmail && user.email.toLowerCase() === bootstrapEmail.toLowerCase()) 
+                  ? 'ADMIN' 
+                  : 'STAFF';
+
               await prisma.profile.create({
-                data: {
-                  userId: user.id,
-                  role: assignedRole,
-                }
+                  data: {
+                      userId: user.id,
+                      role: assignedRole,
+                  }
               })
             }
           }

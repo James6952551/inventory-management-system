@@ -1,13 +1,15 @@
 'use client';
 import { authClient } from "@/lib/auth-client";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 export default function SignInForm() {
     const [isSigningIn, setIsSigningIn] = useState(false)
+    const [isNavigating, startTransition] = useTransition()
     const [errorMessage, setErrorMessage] = useState("")
     const router = useRouter()
+    const isBusy = isSigningIn || isNavigating
 
     async function handleSubmit(event: React.SyntheticEvent<HTMLFormElement>) { 
             event.preventDefault()
@@ -18,26 +20,31 @@ export default function SignInForm() {
             const email = formData.get('email') as string
             const password = formData.get('password') as string
             
-            const { data, error } = await authClient.signIn.email({
-                email,
-                password,
-            },
-            {
-                onSuccess: () => { // Redirect user after sign-in 
-                    setIsSigningIn(false)
-                    router.push('/dashboard')
-                    router.refresh()
+            try {
+                const { error } = await authClient.signIn.email({
+                    email,
+                    password,
                 },
-                onError: (ctx) => { // Catch the error using Better-Auth's onError callback
-                    setIsSigningIn(false)
-                    setErrorMessage(ctx.error.message || "Invalid email or password.")
-                }
-            })
+                {
+                    onSuccess: () => {
+                        startTransition(() => {
+                            router.push('/dashboard')
+                        })
+                        setIsSigningIn(false)
+                    },
+                    onError: (ctx) => {
+                        setIsSigningIn(false)
+                        setErrorMessage(ctx.error.message || "Invalid email or password.")
+                    }
+                })
 
-            // Fallback safety check if error returns outside of callback
-            if (error) {
+                if (error) {
+                    setIsSigningIn(false)
+                    setErrorMessage(error.message || "Failed to sign in.")
+                }
+            } catch (error) {
                 setIsSigningIn(false)
-                setErrorMessage(error.message || "Failed to sign in.")
+                setErrorMessage(error instanceof Error ? error.message : "Failed to sign in.")
             }
     }
 
@@ -116,10 +123,10 @@ export default function SignInForm() {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={isSigningIn}
+            disabled={isBusy}
             className="flex w-full justify-center rounded-lg bg-black px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50"
           >
-            {isSigningIn? 'Signing in...' : 'Sign in'}
+            {isBusy ? 'Signing in...' : 'Sign in'}
           </button>
         </form>
 

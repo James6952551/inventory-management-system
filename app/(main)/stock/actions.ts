@@ -4,8 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { StockLogInput, stockLogSchema, StoreStockInput, storeStockSchema } from "@/lib/validations";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
+import { getCurrentUserWithProfile, requireAuthenticatedUser } from "@/lib/auth-utils";
 
 
 /**
@@ -51,7 +50,7 @@ export async function getStoreStocks() {
  * validation, unauthenticated sessions, duplicate Prisma P2002 conflicts, or other transaction failures.
  */
 export async function addOrUpdateStoreStocksWithLog(storeStockInput: StoreStockInput, stockLogInput: StockLogInput) {
-    // Validate the store stock input before proceeding
+    // Validate inputs
     const validatedStoreStock = storeStockSchema.safeParse(storeStockInput);
     if (!validatedStoreStock.success) {
         return { 
@@ -68,79 +67,126 @@ export async function addOrUpdateStoreStocksWithLog(storeStockInput: StoreStockI
         }
     }
 
-    const storeStockData = validatedStoreStock.data;
-    const stockLogData = validatedStockLog.data;
-    
-    // Get user ID
-    const session = await auth.api.getSession({
-        headers: await headers(),
-    });
+    const storeStockData = validatedStoreStock.data
+    const stockLogData = validatedStockLog.data
 
-    const userId = session?.user.id;
-
-    if (!userId) {
-        return { success: false, error: "Unauthorized. Please log in again." };
+    // CROSS-CHECK: Ensure IDs match between inventory and audit log payloads
+    if (storeStockData.storeId !== stockLogData.storeId) {
+        return { success: false, error: "Store ID mismatch between stock update and audit log." };
+    }
+    if (storeStockData.productId !== stockLogData.productId) {
+        return { success: false, error: "Product ID mismatch between stock update and audit log." };
     }
 
     // Determine if quantity should add (+) or subtract (-) based on the reason
-    let changeMultiplier = 1;
+    let changeMultiplier = 1
     if (stockLogData.reason === "SALE" || stockLogData.reason === "DAMAGE") {
-        changeMultiplier = -1; // Subtract stock
-    } else if (stockLogData.reason === "RESTOCK") {
-        changeMultiplier = 1;  // Add stock
-    } else if (stockLogData.reason === "ADJUSTMENT") {
-        changeMultiplier = 1; 
+        changeMultiplier = -1 // Subtract stock
+    } else if (stockLogData.reason === "RESTOCK" || stockLogData.reason === "ADJUSTMENT") {
+        changeMultiplier = 1 // Add stock
     }
 
-    const finalChangeAmount = storeStockData.quantity * changeMultiplier;
+    const finalChangeAmount = storeStockData.quantity * changeMultiplier
 
     try {
-        // These writes must commit together so inventory cannot change without a matching audit log.
-        await prisma.$transaction(async (tx) => {
-            await tx.storeStock.upsert({
-                where: {
-                    storeId_productId: {
-                        storeId: storeStockData.storeId,
-                        productId: storeStockData.productId
-                    }
-                },
-                update: {
-                    quantity: {
-                        increment: finalChangeAmount 
-                    }
-                },
-                create: {
-                    storeId: storeStockData.storeId,
-                    productId: storeStockData.productId,
-                    // Prevent initial stock from dropping below 0 if creating via a sale/damage entry
-                    quantity: Math.max(0, finalChangeAmount), 
-                    minStockThreshold: storeStockData.minStockThreshold
-                }
-            });
+        // validate if user is authenticated
+        await requireAuthenticatedUser()
 
-            // 2. Create the audit log record with the signed change amount
+        // get currrent user
+        const user = await getCurrentUserWithProfile()
+        if (!user?.id) { 
+            return { success: false, error: "Unauthorized. Please log in again." } 
+        }
+
+        await prisma.$transaction(async (tx) => {
+            if (finalChangeAmount < 0) {
+                // DECREMENT OPERATION: Atomically update ONLY if quantity is sufficient
+                const absChange = Math.abs(finalChangeAmount)
+
+                const updateResult = await tx.storeStock.updateMany({
+                    where: {
+                        storeId: storeStockData.storeId,
+                        productId: storeStockData.productId,
+                        quantity: {
+                            gte: absChange // blocks execution if stock < requested amount
+                        }
+                    },
+                    data: {
+                        quantity: {
+                            increment: finalChangeAmount // negative value
+                        }
+                    }
+                })
+
+                // If 0 rows were updated, determine why to throw the exact error
+                if (updateResult.count === 0) {
+                    const existingRecord = await tx.storeStock.findUnique({
+                        where: {
+                            storeId_productId: {
+                                storeId: storeStockData.storeId,
+                                productId: storeStockData.productId
+                            }
+                        }
+                    })
+
+                    if (!existingRecord) {
+                        throw new Error("PRODUCT_NOT_FOUND")
+                    } else {
+                        throw new Error("INSUFFICIENT_STOCK")
+                    }
+                }
+            } else {
+                // INCREMENT / RESTOCK OPERATION: Safe to upsert
+                await tx.storeStock.upsert({
+                    where: {
+                        storeId_productId: {
+                            storeId: storeStockData.storeId,
+                            productId: storeStockData.productId
+                        }
+                    },
+                    update: {
+                        quantity: {
+                            increment: finalChangeAmount
+                        }
+                    },
+                    create: {
+                        storeId: storeStockData.storeId,
+                        productId: storeStockData.productId,
+                        quantity: finalChangeAmount,
+                        minStockThreshold: storeStockData.minStockThreshold ?? 5
+                    }
+                })
+            }
+
+            // Create the audit log record with the signed change amount
             await tx.stockLog.create({
                 data: {
                     productId: stockLogData.productId,
                     storeId: stockLogData.storeId,
-                    userId: userId,
+                    userId: user.id,
                     changeAmount: finalChangeAmount, 
                     reason: stockLogData.reason,
                     notes: stockLogData.notes
                 }
-            });
-        });
+            })
+        })
 
-        // Refresh stock views and inventory-dependent UI after the atomic quantity and log updates.
-        revalidatePath('/stock');
-        return { success: true };
+        revalidatePath('/stock')
+        return { success: true }
 
-    } catch (error) {
-        console.error("Error updating stock:", error);
+    } catch (error: any) {
+        console.error("Error updating stock:", error)
         
+        if (error.message === "INSUFFICIENT_STOCK") {
+            return { success: false, error: "Insufficient stock available for this operation." }
+        }
+        if (error.message === "PRODUCT_NOT_FOUND") {
+            return { success: false, error: "Stock record not found for this product at the specified store." }
+        }
+
         if (error instanceof Prisma.PrismaClientKnownRequestError) {
             if (error.code === 'P2002') {
-                return { success: false, error: "A stock entry for this product at this store already exists." };
+                return { success: false, error: "A stock entry for this product at this store already exists." }
             }           
         }
 
@@ -157,22 +203,64 @@ export async function addOrUpdateStoreStocksWithLog(storeStockInput: StoreStockI
  * @param id - Unique identifier of the StoreStock record to delete.
  * @returns `{ success: true }` when deleted. Returns `{ success: false, error }` for database failures.
  */
-export async function deleteStock(id: string) {
+export async function deleteStock(storeStockId: string) {
     try {
-        await prisma.storeStock.delete({
-            where: {
-                id: id,
+        // validate if user is authenticated
+        await requireAuthenticatedUser()
+
+        // get currrent user
+        const user = await getCurrentUserWithProfile()
+        if (!user?.id) { 
+            return { success: false, error: "Unauthorized. Please log in again." } 
+        }
+
+        await prisma.$transaction(async (tx) => {
+            // Find the stock record first to get its current quantity and details
+            const stockRecord = await tx.storeStock.findUnique({
+                where: { id: storeStockId },
+            })
+
+            if (!stockRecord) {
+                throw new Error("STOCK_NOT_FOUND")
             }
+
+            const currentQuantity = stockRecord.quantity
+
+            // If there is stock remaining, create a compensating audit log for the removal
+            if (currentQuantity > 0) {
+                await tx.stockLog.create({
+                    data: {
+                        productId: stockRecord.productId,
+                        storeId: stockRecord.storeId,
+                        userId: user.id,
+                        changeAmount: -currentQuantity, // Negative amount to zero out the stock
+                        reason: "ADJUSTMENT",
+                        notes: "Inventory stock record removed/deleted by admin.",
+                    }
+                })
+            }
+
+            // Now safely delete the stock record row
+            await tx.storeStock.delete({
+                where: {
+                    id: storeStockId,
+                }
+            })
         })
-        // Refresh stock listings and inventory totals after the row is removed.
+
         revalidatePath('/stock')
         return { success: true }
 
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error deleting store stock:", error)
+
+        if (error.message === "STOCK_NOT_FOUND") {
+            return { success: false, error: "Stock record not found." }
+        }
+
         return { 
             success: false, 
-            error: "Failed to delete store stock" 
+            error: "Failed to delete store stock. Please try again."
         }
     }
 }

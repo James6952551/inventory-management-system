@@ -88,7 +88,7 @@ model StockLog {
   notes        String?
   createdAt    DateTime  @default(now())
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
   user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   @@map("stock_log")
@@ -121,6 +121,7 @@ model StoreStock {
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([storeId, productId]) // Ensures a product only has one stock entry per store
+  @@check([quantity >= 0], name: "quantity_non_negative")
   @@map("store_stock")
 }
 

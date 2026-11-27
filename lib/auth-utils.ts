@@ -36,3 +36,30 @@ export async function getUserRoleById(userId: string) {
 
     return role
 }
+
+export async function requireAuthenticatedUser() {
+    // Verify user session
+    const session = await auth.api.getSession({
+        headers: await headers(),
+    });
+
+    if (!session?.user) {
+        throw new Error("Unauthorized. Please log in.")
+    }
+}
+
+export async function requireRole(allowedRoles: string[] = ["ADMIN"]) {
+    const currentUser = await getCurrentUserWithProfile()
+
+    if (!currentUser || !currentUser.profile?.role) {
+        throw new Error("Unauthorized. Please log in.")
+    }
+
+    const userRole = currentUser.profile.role
+
+    if (!allowedRoles.includes(userRole)) {
+        throw new Error(`Unauthorized: This action requires one of the following roles: ${allowedRoles.join(", ")}.`)
+    }
+
+    return currentUser
+}

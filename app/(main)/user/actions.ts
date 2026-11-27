@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { ProfileInput, profileSchema } from "@/lib/validations";
 import { revalidatePath } from "next/cache";
-import { getCurrentUserWithProfile } from "@/lib/auth-utils";
+import { requireRole } from "@/lib/auth-utils";
 
 /**
  * Fetches all users and includes their profile relations.
@@ -12,8 +12,11 @@ import { getCurrentUserWithProfile } from "@/lib/auth-utils";
  * @returns A promise resolving to user records with profile data.
  * @throws An Error with the message "Failed to fetch users" when the Prisma query fails.
  */
-export async function getUsers() {
+export async function getUsers() {   
     try {
+        // validate the current user role before proceeding
+        await requireRole(["ADMIN"])
+
         const users = await prisma.user.findMany({
             include: {
                 profile: true
@@ -35,16 +38,6 @@ export async function getUsers() {
  * validation, Prisma P2002 conflicts, or general database failures.
  */
 export async function updateProfile(id: string, profileInput: ProfileInput) {
-    // validate the current user role before proceeding
-    const currentUser = await getCurrentUserWithProfile()
-
-    if (!currentUser || currentUser.profile?.role !== "ADMIN") {
-        return { 
-            success: false, 
-            error: "Unauthorized: Only administrators can update users." 
-        };
-    }
-
     // Validate the store input before proceeding
     const validated = profileSchema.safeParse(profileInput);
     if (!validated.success) {
@@ -57,6 +50,9 @@ export async function updateProfile(id: string, profileInput: ProfileInput) {
     const validatedProfileInput = validated.data
 
     try {
+        // validate the current user role before proceeding
+        await requireRole(["ADMIN"])
+
         await prisma.profile.update({
             where: {
                 userId: id,
@@ -94,17 +90,10 @@ export async function updateProfile(id: string, profileInput: ProfileInput) {
  * or database failures.
  */
 export async function deleteUser(id: string) {
-    // validate the current user role before proceeding
-    const currentUser = await getCurrentUserWithProfile()
-
-    if (!currentUser || currentUser.profile?.role !== "ADMIN") {
-        return { 
-            success: false, 
-            error: "Unauthorized: Only administrators can delete users." 
-        };
-    }
-
     try {
+        // validate the current user role before proceeding
+        await requireRole(["ADMIN"])
+
         await prisma.user.delete({
             where: {
                 id: id,
